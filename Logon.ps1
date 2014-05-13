@@ -2,72 +2,47 @@ $ErrorActionPreference = "Stop"
 
 try
 {
-    $Host.UI.RawUI.WindowTitle = "Downloading PSWindowsUpdate..."
+    # Adding all
+    Add-WindowsFeature -Name "NET-Framework-Core" -Source D:\sources\sxs
+    Add-WindowsFeature -Name "NFS-Client"
+    Add-WindowsFeature -Name "Telnet-Client"
+    Add-WindowsFeature -Name "Telnet-Server"
+    Add-WindowsFeature -Name "Windows-Identity-Foundation"
+    Add-WindowsFeature -Name "RDS-RD-Server"
+    Add-WindowsFeature -Name "RDS-Licensing"
 
-    $psWindowsUpdateBaseUrl = "http://gallery.technet.microsoft.com/scriptcenter/2d191bcd-3308-4edd-9de2-88dff796b0bc/file/"
+    # Download and apply updates
+    $psWindowsUpdateUrl = "http://gallery.technet.microsoft.com/scriptcenter/2d191bcd-3308-4edd-9de2-88dff796b0bc/file/41459/25/PSWindowsUpdate.zip"
+    $psWindowsUpdateFile = "$ENV:Temp\PSWindowsUpdate.zip"
 
-    #Fixes Windows Server 2008 R2 inexistent Unblock-File command Bug
-    if ($(Get-Host).version.major -eq 2)
-    {
-        $psWindowsUpdateUrl = $psWindowsUpdateBaseUrl + "66095/1/PSWindowsUpdate_1.4.5.zip"
-    }
-    else
-    {
-        $psWindowsUpdateUrl = $psWindowsUpdateBaseUrl + "41459/25/PSWindowsUpdate.zip"
-    }
-
-    $psWindowsUpdatePath = "$ENV:Temp\PSWindowsUpdate.zip"
-    (new-object System.Net.WebClient).DownloadFile($psWindowsUpdateUrl, $psWindowsUpdatePath)
-
-    $Host.UI.RawUI.WindowTitle = "Installing PSWindowsUpdate..."
-    foreach($item in (New-Object -com shell.application).NameSpace($psWindowsUpdatePath).Items())
+    Invoke-WebRequest $psWindowsUpdateUrl -OutFile $psWindowsUpdateFile
+    foreach($item in (New-Object -com shell.application).NameSpace($psWindowsUpdateFile).Items())
     {
         $yesToAll = 16
         (New-Object -com shell.application).NameSpace("$ENV:SystemRoot\System32\WindowsPowerShell\v1.0\Modules").copyhere($item, $yesToAll)
     }
-    del $psWindowsUpdatePath
-
     Import-Module PSWindowsUpdate
-
-    $Host.UI.RawUI.WindowTitle = "Installing updates..."
-
     Get-WUInstall -AcceptAll -IgnoreReboot -IgnoreUserInput -NotCategory "Language packs"
-    if (Get-WURebootStatus -Silent)
-    {
-        $Host.UI.RawUI.WindowTitle = "Updates installation finished. Rebooting."
-        shutdown /r /t 0
-    }
-    else
-    {
-        $Host.UI.RawUI.WindowTitle = "Downloading Cloudbase-Init..."
 
-        $CloudbaseInitMsi = "$ENV:Temp\CloudbaseInitSetup_Beta.msi"
-        $CloudbaseInitMsiUrl = "http://www.cloudbase.it/downloads/CloudbaseInitSetup_Beta.msi"
-        $CloudbaseInitMsiLog = "$ENV:Temp\CloudbaseInitSetup_Beta.log"
+    # Settup Hosts to see things
+    Set-Content -Path "C:\Windows\system32\drihttps://raw.githubusercontent.com/noma4i/windows-openstack-imaging-tools/master/Logon.ps1vers\etc\hosts" -Value "192.168.240.162 puppet"
 
-        (new-object System.Net.WebClient).DownloadFile($CloudbaseInitMsiUrl, $CloudbaseInitMsi)
+    # Downloading PuppetAgent and pointing to server
+    $puppetUrl = "http://downloads.puppetlabs.com/windows/puppet-3.6.0-rc1.msi"
+    $puppetFile = "$ENV:Temp\puppet-agent.msi"
+    $masterServer = "puppet"
 
-        $Host.UI.RawUI.WindowTitle = "Installing Cloudbase-Init..."
+    Invoke-WebRequest $puppetUrl -OutFile $puppetFile
+    iex "msiexec /qn /i $puppetFile PUPPET_MASTER_SERVER=$masterServer"
 
-        $serialPortName = @(Get-WmiObject Win32_SerialPort)[0].DeviceId
+    # Finalize and cleanup
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name Unattend*
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name AutoLogonCount
 
-        $p = Start-Process -Wait -PassThru -FilePath msiexec -ArgumentList "/i $CloudbaseInitMsi /qn /l*v $CloudbaseInitMsiLog LOGGINGSERIALPORTNAME=$serialPortName"
-        if ($p.ExitCode -ne 0)
-        {
-            throw "Installing $CloudbaseInitMsi failed. Log: $CloudbaseInitMsiLog"
-        }
+    del $psWindowsUpdateFile
+    del $puppetFile
 
-         # We're done, remove LogonScript and disable AutoLogon
-        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name Unattend*
-        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name AutoLogonCount
-
-        $Host.UI.RawUI.WindowTitle = "Running SetSetupComplete..."
-        & "$ENV:ProgramFiles (x86)\Cloudbase Solutions\Cloudbase-Init\bin\SetSetupComplete.cmd"
-
-        $Host.UI.RawUI.WindowTitle = "Running Sysprep..."
-        $unattendedXmlPath = "$ENV:ProgramFiles (x86)\Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml"
-        & "$ENV:SystemRoot\System32\Sysprep\Sysprep.exe" `/generalize `/oobe `/shutdown `/unattend:"$unattendedXmlPath"
-    }
+    if (Get-WURebootStatus -Silent) { shutdown /r /t 0 }
 }
 catch
 {

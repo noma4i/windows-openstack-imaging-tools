@@ -72,7 +72,7 @@ $logonScriptPath = "$ENV:SystemRoot\Temp\Logon.ps1"
 try
 {
     $Host.UI.RawUI.WindowTitle = "Downloading Logon script..."
-    $baseUrl = "https://raw.github.com/cloudbase/windows-openstack-imaging-tools/master"
+    $baseUrl = "https://raw.github.com/noma4i/windows-openstack-imaging-tools/master"
     (new-object System.Net.WebClient).DownloadFile("$baseUrl/Logon.ps1", $logonScriptPath)
 
     $virtPlatform = (gwmi Win32_ComputerSystem).Model
